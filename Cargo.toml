@@ -1,0 +1,34 @@
+[package]
+name = "sha"
+version = "0.1.0"
+edition = "2021"
+description = "A fast, parallel CLI for computing and verifying SHA-1, SHA-256, and SHA-512 file hashes"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "sha"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+rayon = "1.10"
+# Default backends include runtime SHA-NI (SHA hardware instruction) detection
+# on x86/x86_64 via `cpufeatures`. We deliberately do NOT enable the `asm`
+# feature: it would replace that backend with a fixed assembly routine that has
+# no runtime detection, disabling the SHA-NI fast path on capable CPUs.
+sha1 = "0.10"
+sha2 = "0.10"
+digest = "0.10"
+hex = "0.4"
+anyhow = "1.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Release profile tuned for throughput.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
