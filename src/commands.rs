@@ -180,20 +180,32 @@ fn read_checksum_source(path: &Path) -> io::Result<String> {
     }
 }
 
-/// Parse one line of a checksum file.
+/// Parse one line of a checksum file against the chosen `algo`.
 ///
 /// Returns `None` for blank lines and comments, `Some(Err(..))` for malformed
 /// lines, and `Some(Ok(..))` for valid `<digest>  <path>` entries. The two
-/// coreutils separators are accepted: `"  "` (text) and `" *"` (binary).
-fn parse_line(line: &str, forced: Option<Algorithm>) -> Option<Result<Entry, String>> {
+/// coreutils separators are accepted: `"  "` (text) and `" *"` (binary). The
+/// digest length is checked against `algo` so a mismatched algorithm choice is
+/// reported clearly rather than as a silent comparison failure.
+fn parse_line(line: &str, algo: Algorithm) -> Option<Result<Entry, String>> {
     let line = line.trim_end_matches(['\n', '\r']);
     if line.trim().is_empty() || line.starts_with('#') {
         return None;
     }
 
-    let (hex, rest) = line.split_once(' ')?;
+    let Some((hex, rest)) = line.split_once(' ') else {
+        return Some(Err("line is not in '<digest>  <file>' format".into()));
+    };
     if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Some(Err("line is not in '<digest>  <file>' format".into()));
+    }
+    if hex.len() != algo.hex_len() {
+        return Some(Err(format!(
+            "digest length {} does not match {} (expected {})",
+            hex.len(),
+            algo,
+            algo.hex_len()
+        )));
     }
 
     // `rest` begins with the mode flag (' ' for text, '*' for binary); drop it.
@@ -201,16 +213,6 @@ fn parse_line(line: &str, forced: Option<Algorithm>) -> Option<Result<Entry, Str
     if filename.is_empty() {
         return Some(Err("missing filename".into()));
     }
-
-    let algo = match forced.or_else(|| Algorithm::from_hex_len(hex.len())) {
-        Some(a) => a,
-        None => {
-            return Some(Err(format!(
-                "digest length {} matches no known algorithm",
-                hex.len()
-            )))
-        }
-    };
 
     Some(Ok(Entry {
         algo,
@@ -243,7 +245,7 @@ mod tests {
     fn parses_text_and_binary_separators() {
         let text = parse_line(
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  file.txt",
-            None,
+            Algorithm::Sha256,
         )
         .unwrap()
         .unwrap();
@@ -252,7 +254,7 @@ mod tests {
 
         let bin = parse_line(
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *file.bin",
-            None,
+            Algorithm::Sha256,
         )
         .unwrap()
         .unwrap();
@@ -261,26 +263,27 @@ mod tests {
 
     #[test]
     fn skips_blank_and_comment_lines() {
-        assert!(parse_line("", None).is_none());
-        assert!(parse_line("   ", None).is_none());
-        assert!(parse_line("# a comment", None).is_none());
+        assert!(parse_line("", Algorithm::Sha256).is_none());
+        assert!(parse_line("   ", Algorithm::Sha256).is_none());
+        assert!(parse_line("# a comment", Algorithm::Sha256).is_none());
     }
 
     #[test]
     fn rejects_non_hex_digest() {
-        assert!(parse_line("nothex  file", None).unwrap().is_err());
+        assert!(parse_line("nothex  file", Algorithm::Sha256)
+            .unwrap()
+            .is_err());
     }
 
     #[test]
-    fn forced_algorithm_overrides_length_inference() {
-        // 64-char digest would infer sha256, but force sha512.
-        let e = parse_line(
+    fn rejects_digest_length_mismatch() {
+        // A 64-char (sha256) digest checked as sha512 should be flagged.
+        assert!(parse_line(
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  f",
-            Some(Algorithm::Sha512),
+            Algorithm::Sha512,
         )
         .unwrap()
-        .unwrap();
-        assert_eq!(e.algo, Algorithm::Sha512);
+        .is_err());
     }
 
     /// Create a temp file with the given contents, returning the open handle

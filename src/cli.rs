@@ -40,15 +40,21 @@ pub struct PerfArgs {
     pub buffer_size: Option<usize>,
 }
 
+/// Help text listing every accepted algorithm, shown on both subcommands.
+const ALGO_HELP: &str = "Hash algorithm. One of: md5, sha1, sha224, sha256, sha384, \
+    sha512, sha512_224, sha512_256, sha3_224, sha3_256, sha3_384, sha3_512. Bare digest \
+    sizes select the SHA-2 family (e.g. 256 = sha256); SHA-3 and SHA-512 truncations must \
+    be qualified (e.g. sha3-256, 512/256).";
+
 #[derive(Args, Debug)]
 pub struct HashArgs {
+    /// Hash algorithm (see long help for the full list).
+    #[arg(value_name = "ALGORITHM", long_help = ALGO_HELP)]
+    pub algorithm: Algorithm,
+
     /// Files to hash.
     #[arg(required = true, value_name = "FILE")]
     pub files: Vec<PathBuf>,
-
-    /// Hashing algorithm.
-    #[arg(short = 'a', long, default_value = "sha256")]
-    pub algorithm: Algorithm,
 
     /// Write checksums to this file instead of standard output.
     #[arg(short = 'o', long, value_name = "FILE")]
@@ -60,13 +66,13 @@ pub struct HashArgs {
 
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
+    /// Hash algorithm used to produce the checksum file(s).
+    #[arg(value_name = "ALGORITHM", long_help = ALGO_HELP)]
+    pub algorithm: Algorithm,
+
     /// Checksum files to read (coreutils `shaNsum` format). Use `-` for stdin.
     #[arg(required = true, value_name = "CHECKSUM_FILE")]
     pub checksum_files: Vec<PathBuf>,
-
-    /// Force a specific algorithm instead of inferring it from digest length.
-    #[arg(short = 'a', long)]
-    pub algorithm: Option<Algorithm>,
 
     /// Don't print OK lines, only failures.
     #[arg(long)]

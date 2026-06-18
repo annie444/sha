@@ -2,7 +2,7 @@
 name = "sha"
 version = "0.1.0"
 edition = "2021"
-description = "A fast, parallel CLI for computing and verifying SHA-1, SHA-256, and SHA-512 file hashes"
+description = "A fast, parallel CLI for computing and verifying MD5, SHA-1, SHA-2, and SHA-3 file hashes"
 license = "MIT OR Apache-2.0"
 
 [[bin]]
@@ -18,6 +18,8 @@ rayon = "1.10"
 # no runtime detection, disabling the SHA-NI fast path on capable CPUs.
 sha1 = "0.10"
 sha2 = "0.10"
+sha3 = "0.10"
+md-5 = "0.10"
 digest = "0.10"
 hex = "0.4"
 anyhow = "1.0"

@@ -55,9 +55,18 @@ pub fn hash_file(path: &Path, algo: Algorithm, buf: &mut [u8]) -> io::Result<Str
     advise_sequential(&file);
 
     let digest = match algo {
+        Algorithm::Md5 => hash_reader::<md5::Md5, _>(file, buf)?,
         Algorithm::Sha1 => hash_reader::<sha1::Sha1, _>(file, buf)?,
+        Algorithm::Sha224 => hash_reader::<sha2::Sha224, _>(file, buf)?,
         Algorithm::Sha256 => hash_reader::<sha2::Sha256, _>(file, buf)?,
+        Algorithm::Sha384 => hash_reader::<sha2::Sha384, _>(file, buf)?,
         Algorithm::Sha512 => hash_reader::<sha2::Sha512, _>(file, buf)?,
+        Algorithm::Sha512_224 => hash_reader::<sha2::Sha512_224, _>(file, buf)?,
+        Algorithm::Sha512_256 => hash_reader::<sha2::Sha512_256, _>(file, buf)?,
+        Algorithm::Sha3_224 => hash_reader::<sha3::Sha3_224, _>(file, buf)?,
+        Algorithm::Sha3_256 => hash_reader::<sha3::Sha3_256, _>(file, buf)?,
+        Algorithm::Sha3_384 => hash_reader::<sha3::Sha3_384, _>(file, buf)?,
+        Algorithm::Sha3_512 => hash_reader::<sha3::Sha3_512, _>(file, buf)?,
     };
     Ok(hex::encode(digest))
 }
