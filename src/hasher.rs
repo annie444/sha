@@ -47,28 +47,34 @@ fn advise_sequential(file: &File) {
 #[cfg(not(target_os = "linux"))]
 fn advise_sequential(_file: &File) {}
 
+/// Stream all bytes from `reader` through `algo` using `buf` as scratch space,
+/// returning the digest as a lowercase hex string. The result is independent of
+/// `buf`'s size; smaller buffers just mean more read iterations.
+pub fn hash_stream<R: Read>(reader: R, algo: Algorithm, buf: &mut [u8]) -> io::Result<String> {
+    let digest = match algo {
+        Algorithm::Md5 => hash_reader::<md5::Md5, _>(reader, buf)?,
+        Algorithm::Sha1 => hash_reader::<sha1::Sha1, _>(reader, buf)?,
+        Algorithm::Sha224 => hash_reader::<sha2::Sha224, _>(reader, buf)?,
+        Algorithm::Sha256 => hash_reader::<sha2::Sha256, _>(reader, buf)?,
+        Algorithm::Sha384 => hash_reader::<sha2::Sha384, _>(reader, buf)?,
+        Algorithm::Sha512 => hash_reader::<sha2::Sha512, _>(reader, buf)?,
+        Algorithm::Sha512_224 => hash_reader::<sha2::Sha512_224, _>(reader, buf)?,
+        Algorithm::Sha512_256 => hash_reader::<sha2::Sha512_256, _>(reader, buf)?,
+        Algorithm::Sha3_224 => hash_reader::<sha3::Sha3_224, _>(reader, buf)?,
+        Algorithm::Sha3_256 => hash_reader::<sha3::Sha3_256, _>(reader, buf)?,
+        Algorithm::Sha3_384 => hash_reader::<sha3::Sha3_384, _>(reader, buf)?,
+        Algorithm::Sha3_512 => hash_reader::<sha3::Sha3_512, _>(reader, buf)?,
+    };
+    Ok(hex::encode(digest))
+}
+
 /// Compute the digest of the file at `path` and return it as a lowercase hex
 /// string. `buf` is reused across calls on the same thread to avoid repeated
 /// large allocations.
 pub fn hash_file(path: &Path, algo: Algorithm, buf: &mut [u8]) -> io::Result<String> {
     let file = File::open(path)?;
     advise_sequential(&file);
-
-    let digest = match algo {
-        Algorithm::Md5 => hash_reader::<md5::Md5, _>(file, buf)?,
-        Algorithm::Sha1 => hash_reader::<sha1::Sha1, _>(file, buf)?,
-        Algorithm::Sha224 => hash_reader::<sha2::Sha224, _>(file, buf)?,
-        Algorithm::Sha256 => hash_reader::<sha2::Sha256, _>(file, buf)?,
-        Algorithm::Sha384 => hash_reader::<sha2::Sha384, _>(file, buf)?,
-        Algorithm::Sha512 => hash_reader::<sha2::Sha512, _>(file, buf)?,
-        Algorithm::Sha512_224 => hash_reader::<sha2::Sha512_224, _>(file, buf)?,
-        Algorithm::Sha512_256 => hash_reader::<sha2::Sha512_256, _>(file, buf)?,
-        Algorithm::Sha3_224 => hash_reader::<sha3::Sha3_224, _>(file, buf)?,
-        Algorithm::Sha3_256 => hash_reader::<sha3::Sha3_256, _>(file, buf)?,
-        Algorithm::Sha3_384 => hash_reader::<sha3::Sha3_384, _>(file, buf)?,
-        Algorithm::Sha3_512 => hash_reader::<sha3::Sha3_512, _>(file, buf)?,
-    };
-    Ok(hex::encode(digest))
+    hash_stream(file, algo, buf)
 }
 
 #[cfg(test)]

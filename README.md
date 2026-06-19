@@ -127,6 +127,24 @@ correctness across buffer boundaries, the size/argument parsers, and end-to-end
 behavior of both subcommands (output format, exit codes, tamper detection,
 stdin, `--status`/`--quiet`, and a hash/verify round-trip per algorithm).
 
+## Fuzzing
+
+The untrusted inputs (checksum-file lines, algorithm names) and the hand-written
+streaming read loop are covered by [`cargo-fuzz`](https://github.com/rust-fuzz/cargo-fuzz)
+targets in `fuzz/`. Requires a nightly toolchain:
+
+```sh
+cargo install cargo-fuzz
+cargo +nightly fuzz run parse_checksum_line   # untrusted checksum-line parser
+cargo +nightly fuzz run hash_chunking         # read loop: digest must not depend on buffer size
+cargo +nightly fuzz run parse_algorithm       # algorithm-name parser
+```
+
+`hash_chunking` is a differential test: it hashes arbitrary data with a
+fuzz-chosen buffer size and asserts the digest matches hashing the same data in
+a single read, so any boundary or short-read bug surfaces as a mismatch. CI runs
+a short smoke campaign on each target.
+
 ## Benchmarks
 
 **Per-algorithm throughput (Criterion):**

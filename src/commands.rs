@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use rayon::prelude::*;
 
 use crate::cli::{HashArgs, VerifyArgs};
-use sha::algorithm::Algorithm;
+use sha::checksum::{parse_line, ChecksumEntry};
 use sha::hasher::{hash_file, DEFAULT_BUFFER_SIZE};
 
 thread_local! {
@@ -67,13 +67,6 @@ pub fn run_hash(args: HashArgs) -> Result<i32> {
     Ok(if had_error { 1 } else { 0 })
 }
 
-/// One line parsed from a checksum file.
-struct Entry {
-    algo: Algorithm,
-    expected: String,
-    path: PathBuf,
-}
-
 /// Outcome of verifying a single entry.
 enum Outcome {
     Ok,
@@ -86,7 +79,7 @@ pub fn run_verify(args: VerifyArgs) -> Result<i32> {
     let buf_size = args.perf.buffer_size.unwrap_or(DEFAULT_BUFFER_SIZE);
 
     // Collect all entries from every checksum file first.
-    let mut entries: Vec<Entry> = Vec::new();
+    let mut entries: Vec<ChecksumEntry> = Vec::new();
     let mut parse_errors = 0usize;
     for cf in &args.checksum_files {
         let content = read_checksum_source(cf)
@@ -177,131 +170,5 @@ fn read_checksum_source(path: &Path) -> io::Result<String> {
         Ok(s)
     } else {
         fs::read_to_string(path)
-    }
-}
-
-/// Parse one line of a checksum file against the chosen `algo`.
-///
-/// Returns `None` for blank lines and comments, `Some(Err(..))` for malformed
-/// lines, and `Some(Ok(..))` for valid `<digest>  <path>` entries. The two
-/// coreutils separators are accepted: `"  "` (text) and `" *"` (binary). The
-/// digest length is checked against `algo` so a mismatched algorithm choice is
-/// reported clearly rather than as a silent comparison failure.
-fn parse_line(line: &str, algo: Algorithm) -> Option<Result<Entry, String>> {
-    let line = line.trim_end_matches(['\n', '\r']);
-    if line.trim().is_empty() || line.starts_with('#') {
-        return None;
-    }
-
-    let Some((hex, rest)) = line.split_once(' ') else {
-        return Some(Err("line is not in '<digest>  <file>' format".into()));
-    };
-    if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Some(Err("line is not in '<digest>  <file>' format".into()));
-    }
-    if hex.len() != algo.hex_len() {
-        return Some(Err(format!(
-            "digest length {} does not match {} (expected {})",
-            hex.len(),
-            algo,
-            algo.hex_len()
-        )));
-    }
-
-    // `rest` begins with the mode flag (' ' for text, '*' for binary); drop it.
-    let filename = rest.strip_prefix([' ', '*']).unwrap_or(rest);
-    if filename.is_empty() {
-        return Some(Err("missing filename".into()));
-    }
-
-    Some(Ok(Entry {
-        algo,
-        expected: hex.to_ascii_lowercase(),
-        path: PathBuf::from(filename),
-    }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn hashes_known_answer() {
-        // Known SHA-256 of "abc".
-        let mut f = tempfile_with(b"abc");
-        let path = f.1;
-        f.0.flush().unwrap();
-        let mut buf = vec![0u8; 4096];
-        let hex = hash_file(&path, Algorithm::Sha256, &mut buf).unwrap();
-        assert_eq!(
-            hex,
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-        let _ = fs::remove_file(&path);
-    }
-
-    #[test]
-    fn parses_text_and_binary_separators() {
-        let text = parse_line(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  file.txt",
-            Algorithm::Sha256,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(text.algo, Algorithm::Sha256);
-        assert_eq!(text.path, PathBuf::from("file.txt"));
-
-        let bin = parse_line(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *file.bin",
-            Algorithm::Sha256,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(bin.path, PathBuf::from("file.bin"));
-    }
-
-    #[test]
-    fn skips_blank_and_comment_lines() {
-        assert!(parse_line("", Algorithm::Sha256).is_none());
-        assert!(parse_line("   ", Algorithm::Sha256).is_none());
-        assert!(parse_line("# a comment", Algorithm::Sha256).is_none());
-    }
-
-    #[test]
-    fn rejects_non_hex_digest() {
-        assert!(parse_line("nothex  file", Algorithm::Sha256)
-            .unwrap()
-            .is_err());
-    }
-
-    #[test]
-    fn rejects_digest_length_mismatch() {
-        // A 64-char (sha256) digest checked as sha512 should be flagged.
-        assert!(parse_line(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  f",
-            Algorithm::Sha512,
-        )
-        .unwrap()
-        .is_err());
-    }
-
-    /// Create a temp file with the given contents, returning the open handle
-    /// and its path.
-    fn tempfile_with(data: &[u8]) -> (File, PathBuf) {
-        let mut path = std::env::temp_dir();
-        let unique = format!(
-            "sha-test-{}-{:?}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        path.push(unique);
-        let mut f = File::create(&path).unwrap();
-        f.write_all(data).unwrap();
-        f.sync_all().unwrap();
-        (f, path)
     }
 }

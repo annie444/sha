@@ -37,3 +37,38 @@ jobs:
 
       - name: Test
         run: cargo test --all-targets
+
+  fuzz:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            fuzz/target
+          key: ${{ runner.os }}-fuzz-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build fuzz targets
+        run: cargo fuzz build
+
+      # A short run on each target catches regressions (panics, differential
+      # mismatches) without turning CI into a long fuzzing campaign.
+      - name: Smoke-run fuzz targets
+        run: |
+          for t in parse_checksum_line hash_chunking parse_algorithm; do
+            echo "::group::$t"
+            cargo fuzz run "$t" -- -max_total_time=30 -print_final_stats=1
+            echo "::endgroup::"
+          done

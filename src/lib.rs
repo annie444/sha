@@ -6,4 +6,5 @@
 //! binary crate.
 
 pub mod algorithm;
+pub mod checksum;
 pub mod hasher;
