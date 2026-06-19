@@ -120,9 +120,10 @@ done
 echo
 echo "Notes:"
 echo " * 'speedup vs 1cpu' compares parallel sha against single-threaded coreutils."
-echo " * Per-core software speed depends on the CPU:"
+echo " * Per-core speed depends on the CPU:"
 echo "     - With SHA-NI (most CPUs since ~2016), sha1/sha256 use hardware"
-echo "       instructions and sha is far faster per core than coreutils."
+echo "       instructions; sha, coreutils and openssl all use the same path and"
+echo "       run at parity per core (~1.9 cycles/byte). sha's win is parallelism."
 echo "     - WITHOUT SHA-NI, RustCrypto's portable sha256 is slower per core than"
-echo "       coreutils/openssl, so sha's advantage here comes from parallelism."
+echo "       coreutils/openssl, so sha's advantage comes entirely from parallelism."
 echo " * coreutils has no SHA-3; use 'cargo bench' for SHA-3 throughput."

@@ -168,10 +168,30 @@ NUM_FILES=8 FILE_SIZE_MB=420 REPS=3 scripts/bench-vs-coreutils.sh
 Times `sha` (parallel and single-threaded) against the coreutils `*sum` tools
 and against coreutils fanned out with `xargs -P`, on the same fileset.
 
-**Interpreting the numbers.** Per-core software SHA-256 in RustCrypto is
-*slower* than coreutils/openssl on CPUs **without** SHA-NI (measured ~0.18 vs
-~0.36 GiB/s on an AVX2-only Xeon), so on such machines `sha`'s win comes purely
-from hashing files in parallel. On CPUs **with** SHA-NI — the common case today
-— SHA-1/SHA-256 run on the hardware instructions (~1.5–2 GiB/s per core),
-which neither coreutils nor stock openssl use, so `sha` is dramatically faster
-both per-core and in aggregate. SHA-512 and SHA-3 are always software on x86.
+**Interpreting the numbers.** Throughput depends heavily on whether the CPU has
+the SHA-NI hardware instructions, because RustCrypto's `sha2` backend detects
+them at runtime:
+
+* **With SHA-NI** (most x86 CPUs since ~2016 — Intel Goldmont/Ice Lake+, AMD
+  Zen+): SHA-1/SHA-256 run on the hardware instructions. Measured single-thread
+  on a SHA-NI Xeon, `sha`, coreutils `sha256sum`, and openssl are all at parity
+  — about **1.0 GiB/s (~1.9 cycles/byte)** — because all three use the same
+  hardware path. Aggregate throughput then scales with core count as `sha`
+  hashes files in parallel.
+* **Without SHA-NI**: RustCrypto falls back to its portable `soft` backend,
+  which is measurably *slower* than coreutils/openssl (≈0.18 vs ≈0.36 GiB/s
+  single-thread on an AVX2-only Xeon). On such machines `sha`'s advantage comes
+  purely from parallelism across files.
+
+Why the software path trails the C tools is worth understanding: RustCrypto's
+`soft` SHA-256 is not a conventional scalar kernel. It is written as a *software
+emulation of the SHA-NI instruction sequence*, operating on `[u32; 4]` lanes
+through helpers named after the hardware intrinsics (`sha256msg1`, `sha256msg2`,
+`sha256_digest_round_x2`). Structuring the data in four-word chunks lets the
+compiler autovectorize it into SSE/AVX SIMD registers where possible, and lets
+the same code shape map directly onto the SHA-NI backend. The trade-off is that
+when those `[u32; 4]` operations are *not* vectorized (a generic `x86-64`
+build), each becomes four scalar instructions plus extra lane-shuffling
+(`sha256load`, `sha256swap`) that a purpose-built scalar C kernel — like the one
+in coreutils — never performs, costing roughly 2× the work per round. SHA-512
+and SHA-3 are always software on x86 (no hardware instructions exist for them).
