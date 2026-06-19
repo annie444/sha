@@ -113,3 +113,66 @@ fn parse_size(s: &str) -> Result<usize, String> {
         .filter(|&n| n > 0)
         .ok_or_else(|| format!("size '{s}' is zero or too large"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn clap_config_is_valid() {
+        // Catches conflicting args, bad value names, etc. at test time.
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn parses_byte_sizes_with_suffixes() {
+        assert_eq!(parse_size("1024"), Ok(1024));
+        assert_eq!(parse_size("1K"), Ok(1024));
+        assert_eq!(parse_size("8M"), Ok(8 * 1024 * 1024));
+        assert_eq!(parse_size("16MiB"), Ok(16 * 1024 * 1024));
+        assert_eq!(parse_size("2g"), Ok(2 * 1024 * 1024 * 1024));
+        assert_eq!(parse_size("  4096  "), Ok(4096));
+        assert_eq!(parse_size("512b"), Ok(512));
+    }
+
+    #[test]
+    fn rejects_bad_sizes() {
+        assert!(parse_size("").is_err());
+        assert!(parse_size("0").is_err());
+        assert!(parse_size("abc").is_err());
+        assert!(parse_size("8X").is_err());
+        assert!(parse_size("M").is_err());
+    }
+
+    #[test]
+    fn parses_hash_invocation() {
+        let cli = Cli::try_parse_from(["sha", "hash", "256", "a.txt", "b.txt"]).unwrap();
+        match cli.command {
+            Command::Hash(a) => {
+                assert_eq!(a.algorithm, Algorithm::Sha256);
+                assert_eq!(a.files.len(), 2);
+            }
+            _ => panic!("expected hash subcommand"),
+        }
+    }
+
+    #[test]
+    fn parses_verify_invocation_with_global_flags() {
+        let cli = Cli::try_parse_from(["sha", "verify", "md5", "-j", "3", "sums.txt"]).unwrap();
+        match cli.command {
+            Command::Verify(a) => {
+                assert_eq!(a.algorithm, Algorithm::Md5);
+                assert_eq!(a.perf.jobs, Some(3));
+            }
+            _ => panic!("expected verify subcommand"),
+        }
+    }
+
+    #[test]
+    fn rejects_missing_algorithm_and_files() {
+        assert!(Cli::try_parse_from(["sha", "hash"]).is_err());
+        assert!(Cli::try_parse_from(["sha", "hash", "256"]).is_err());
+        assert!(Cli::try_parse_from(["sha", "hash", "bogus-algo", "f"]).is_err());
+    }
+}
