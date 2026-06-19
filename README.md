@@ -195,3 +195,6 @@ build), each becomes four scalar instructions plus extra lane-shuffling
 (`sha256load`, `sha256swap`) that a purpose-built scalar C kernel — like the one
 in coreutils — never performs, costing roughly 2× the work per round. SHA-512
 and SHA-3 are always software on x86 (no hardware instructions exist for them).
+
+## License
+MIT
