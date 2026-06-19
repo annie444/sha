@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::algorithm::Algorithm;
+use sha::algorithm::Algorithm;
 
 #[derive(Parser, Debug)]
 #[command(

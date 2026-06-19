@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
-use crate::algorithm::Algorithm;
 use crate::cli::{HashArgs, VerifyArgs};
-use crate::hasher::{hash_file, DEFAULT_BUFFER_SIZE};
+use sha::algorithm::Algorithm;
+use sha::hasher::{hash_file, DEFAULT_BUFFER_SIZE};
 
 thread_local! {
     /// Per-thread scratch buffer, grown on demand and reused across files so a

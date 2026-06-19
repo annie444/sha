@@ -119,5 +119,41 @@ mismatches, any file can't be read, or any line is malformed.
 ## Tests
 
 ```sh
-cargo test --release
+cargo test            # unit + integration tests
 ```
+
+The suite covers known-answer (NIST) vectors for all 12 algorithms, read-loop
+correctness across buffer boundaries, the size/argument parsers, and end-to-end
+behavior of both subcommands (output format, exit codes, tamper detection,
+stdin, `--status`/`--quiet`, and a hash/verify round-trip per algorithm).
+
+## Benchmarks
+
+**Per-algorithm throughput (Criterion):**
+
+```sh
+cargo bench                                   # 16 MiB default payload
+SHA_BENCH_SIZE=$((64*1024*1024)) cargo bench  # larger payload
+cargo bench -- sha256                          # filter by name
+```
+
+This measures single-stream `hash_file` throughput for each algorithm and
+reports bytes/second.
+
+**Comparison against coreutils:**
+
+```sh
+scripts/bench-vs-coreutils.sh
+NUM_FILES=8 FILE_SIZE_MB=420 REPS=3 scripts/bench-vs-coreutils.sh
+```
+
+Times `sha` (parallel and single-threaded) against the coreutils `*sum` tools
+and against coreutils fanned out with `xargs -P`, on the same fileset.
+
+**Interpreting the numbers.** Per-core software SHA-256 in RustCrypto is
+*slower* than coreutils/openssl on CPUs **without** SHA-NI (measured ~0.18 vs
+~0.36 GiB/s on an AVX2-only Xeon), so on such machines `sha`'s win comes purely
+from hashing files in parallel. On CPUs **with** SHA-NI — the common case today
+— SHA-1/SHA-256 run on the hardware instructions (~1.5–2 GiB/s per core),
+which neither coreutils nor stock openssl use, so `sha` is dramatically faster
+both per-core and in aggregate. SHA-512 and SHA-3 are always software on x86.
