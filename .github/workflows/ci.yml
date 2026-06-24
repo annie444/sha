@@ -58,7 +58,10 @@ jobs:
           key: ${{ runner.os }}-fuzz-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: |
+          if ! command -v carg-fuzz >/dev/null 2>&1; then
+            cargo install cargo-fuzz --locked
+          fi
 
       - name: Build fuzz targets
         run: cargo fuzz build
