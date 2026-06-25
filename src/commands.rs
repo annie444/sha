@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
+use tracing::{error, info, warn};
 
 use crate::cli::{HashArgs, VerifyArgs};
 use sha::checksum::{parse_line, ChecksumEntry};
@@ -58,7 +59,7 @@ pub fn run_hash(args: HashArgs) -> Result<i32> {
             Ok(hex) => writeln!(writer, "{hex}  {}", path.display())?,
             Err(e) => {
                 had_error = true;
-                eprintln!("sha: {}: {e}", path.display());
+                error!(path = path.display().to_string(), "{e}");
             }
         }
     }
@@ -91,7 +92,7 @@ pub fn run_verify(args: VerifyArgs) -> Result<i32> {
                 Some(Err(msg)) => {
                     parse_errors += 1;
                     if !args.status {
-                        eprintln!("sha: {}:{}: {msg}", cf.display(), lineno + 1);
+                        error!("{}:{}: {msg}", cf.display(), lineno + 1);
                     }
                 }
             }
@@ -114,42 +115,39 @@ pub fn run_verify(args: VerifyArgs) -> Result<i32> {
 
     let mut failed = 0usize;
     let mut read_errors = 0usize;
-    let stdout = io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
     for (path, outcome) in outcomes {
         match outcome {
             Outcome::Ok => {
                 if !args.status && !args.quiet {
-                    writeln!(out, "{}: OK", path.display())?;
+                    info!(path = path.display().to_string(), "OK");
                 }
             }
             Outcome::Mismatch => {
                 failed += 1;
                 if !args.status {
-                    writeln!(out, "{}: FAILED", path.display())?;
+                    warn!(path = path.display().to_string(), "FAILED");
                 }
             }
             Outcome::Error(e) => {
                 read_errors += 1;
                 if !args.status {
-                    writeln!(out, "{}: FAILED open or read", path.display())?;
-                    eprintln!("sha: {}: {e}", path.display());
+                    warn!(path = path.display().to_string(), "FAILED open or read");
+                    error!(path = path.display().to_string(), "{e}");
                 }
             }
         }
     }
-    out.flush()?;
 
     if !args.status {
         if failed > 0 {
-            eprintln!(
-                "sha: WARNING: {failed} computed checksum{} did NOT match",
+            warn!(
+                "{failed} computed checksum{} did NOT match",
                 if failed == 1 { "" } else { "s" }
             );
         }
         if read_errors > 0 {
-            eprintln!(
-                "sha: WARNING: {read_errors} listed file{} could not be read",
+            warn!(
+                "{read_errors} listed file{} could not be read",
                 if read_errors == 1 { "" } else { "s" }
             );
         }

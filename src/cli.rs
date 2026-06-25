@@ -2,9 +2,20 @@
 
 use std::path::PathBuf;
 
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 
 use sha::algorithm::Algorithm;
+
+pub const SHA_STYLING: Styles = Styles::styled()
+    .header(AnsiColor::BrightGreen.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::BrightGreen.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::BrightCyan.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default())
+    .error(AnsiColor::BrightRed.on_default().effects(Effects::BOLD))
+    .valid(AnsiColor::BrightCyan.on_default().effects(Effects::BOLD))
+    .invalid(AnsiColor::Yellow.on_default())
+    .context(AnsiColor::BrightBlue.on_default().effects(Effects::BOLD));
 
 #[derive(Parser, Debug)]
 #[command(
@@ -12,8 +23,10 @@ use sha::algorithm::Algorithm;
     version,
     about = "Fast, parallel SHA-1/256/512 file hashing and verification",
     long_about = "Compute and verify SHA-1, SHA-256, and SHA-512 hashes of files.\n\
-                  Files are hashed concurrently across CPU cores; on x86_64 the \
-                  SHA hardware instructions are used automatically when present."
+                  Files are hashed concurrently across CPU cores.\n\
+                  On x86_64 the SHA_NI hardware instructions are used automatically \
+                  when present.",
+    styles = SHA_STYLING,
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -32,11 +45,11 @@ pub enum Command {
 #[derive(Args, Debug, Clone)]
 pub struct PerfArgs {
     /// Number of files to hash in parallel (default: number of logical CPUs).
-    #[arg(short = 'j', long, global = true, value_name = "N")]
+    #[arg(short, long, global = true, value_name = "N")]
     pub jobs: Option<usize>,
 
     /// Per-file read buffer size, e.g. 8M, 16MiB, 1048576 (default: 8MiB).
-    #[arg(short = 'b', long, global = true, value_name = "SIZE", value_parser = parse_size)]
+    #[arg(short, long, global = true, value_name = "SIZE", value_parser = parse_size)]
     pub buffer_size: Option<usize>,
 }
 
@@ -62,6 +75,9 @@ pub struct HashArgs {
 
     #[command(flatten)]
     pub perf: PerfArgs,
+
+    #[command(flatten)]
+    pub verbosity: clap_verbosity_flag::Verbosity,
 }
 
 #[derive(Args, Debug)]
@@ -75,15 +91,18 @@ pub struct VerifyArgs {
     pub checksum_files: Vec<PathBuf>,
 
     /// Don't print OK lines, only failures.
-    #[arg(long)]
+    #[arg(short, long)]
     pub quiet: bool,
 
     /// Print nothing; communicate the result only through the exit code.
-    #[arg(long)]
+    #[arg(short, long)]
     pub status: bool,
 
     #[command(flatten)]
     pub perf: PerfArgs,
+
+    #[command(flatten)]
+    pub verbosity: clap_verbosity_flag::Verbosity,
 }
 
 /// Parse a human-friendly byte size such as `8M`, `16MiB`, `1024K`, or a plain

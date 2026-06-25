@@ -21,18 +21,26 @@ harness = false
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
+clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
 rayon = "1.10"
-# Default backends include runtime SHA-NI (SHA hardware instruction) detection
-# on x86/x86_64 via `cpufeatures`. We deliberately do NOT enable the `asm`
-# feature: it would replace that backend with a fixed assembly routine that has
-# no runtime detection, disabling the SHA-NI fast path on capable CPUs.
-sha1 = "0.10"
-sha2 = "0.10"
-sha3 = "0.10"
-md-5 = "0.10"
-digest = "0.10"
+sha1 = "0.11"
+sha2 = "0.11"
+sha3 = "0.12"
+md-5 = "0.11"
+digest = "0.11"
 hex = "0.4"
 anyhow = "1.0"
+tracing-appender = { version = "0.2.5", features = ["parking_lot"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = [
+  "alloc",
+  "env-filter",
+  "fmt",
+  "local-time",
+  "parking_lot",
+  "registry",
+  "std",
+] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -46,5 +54,5 @@ panic = "abort"
 strip = true
 
 [dev-dependencies]
-criterion = "0.8.2"
-tempfile = "3.27.0"
+criterion = "0.8"
+tempfile = "3.27"

@@ -2,6 +2,7 @@
 
 mod cli;
 mod commands;
+mod logging;
 
 use std::process::ExitCode;
 
@@ -9,21 +10,24 @@ use anyhow::Result;
 use clap::Parser;
 
 use cli::{Cli, Command};
+use tracing::error;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let (level, jobs) = match &cli.command {
+        Command::Hash(a) => (a.verbosity, a.perf.jobs),
+        Command::Verify(a) => (a.verbosity, a.perf.jobs),
+    };
+
+    let _guard = logging::init(level.into());
 
     // Size the rayon pool from the chosen job count (default: logical CPUs).
-    let jobs = match &cli.command {
-        Command::Hash(a) => a.perf.jobs,
-        Command::Verify(a) => a.perf.jobs,
-    };
     if let Some(n) = jobs {
         if let Err(e) = rayon::ThreadPoolBuilder::new()
             .num_threads(n)
             .build_global()
         {
-            eprintln!("sha: failed to configure thread pool: {e}");
+            error!("failed to configure thread pool: {e}");
             return ExitCode::FAILURE;
         }
     }
@@ -31,7 +35,7 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(code) => ExitCode::from(code as u8),
         Err(e) => {
-            eprintln!("sha: error: {e:#}");
+            error!("{e:#}");
             ExitCode::FAILURE
         }
     }
