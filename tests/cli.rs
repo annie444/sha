@@ -165,8 +165,18 @@ fn verify_all_ok() {
     fs::write(dir.path().join("SUMS"), &sums.stdout).unwrap();
     let out = run(dir.path(), &["verify", "256", "SUMS"]);
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
-    assert!(stdout(&out).contains("a: OK"));
-    assert!(stdout(&out).contains("b: OK"));
+    assert!(
+        stderr(&out).contains("OK") && stderr(&out).contains("a"),
+        "stderr: {}\nstdout: {}",
+        stderr(&out),
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains("OK") && stderr(&out).contains("b"),
+        "stderr: {}\nstdout: {}",
+        stderr(&out),
+        stdout(&out)
+    );
 }
 
 #[test]
@@ -178,7 +188,7 @@ fn verify_detects_tampering() {
     fs::write(dir.path().join("a"), b"tampered").unwrap();
     let out = run(dir.path(), &["verify", "256", "SUMS"]);
     assert_eq!(code(&out), 1);
-    assert!(stdout(&out).contains("a: FAILED"));
+    assert!(stderr(&out).contains("FAILED") && stderr(&out).contains("a"));
     assert!(stderr(&out).contains("did NOT match"));
 }
 
@@ -192,7 +202,7 @@ fn verify_missing_listed_file() {
     .unwrap();
     let out = run(dir.path(), &["verify", "256", "SUMS"]);
     assert_eq!(code(&out), 1);
-    assert!(stdout(&out).contains("ghost: FAILED"));
+    assert!(stderr(&out).contains("FAILED") && stderr(&out).contains("ghost"));
 }
 
 #[test]
@@ -229,9 +239,12 @@ fn verify_quiet_shows_only_failures() {
     fs::write(dir.path().join("bad"), b"changed").unwrap();
     let out = run(dir.path(), &["verify", "256", "--quiet", "SUMS"]);
     assert_eq!(code(&out), 1);
-    let s = stdout(&out);
-    assert!(!s.contains("good: OK"), "quiet should hide OK lines: {s:?}");
-    assert!(s.contains("bad: FAILED"));
+    let s = stderr(&out);
+    assert!(
+        !s.contains("OK") && !s.contains("good"),
+        "quiet should hide OK lines: {s:?}"
+    );
+    assert!(s.contains("FAILED") && s.contains("bad"));
 }
 
 #[test]
@@ -240,7 +253,7 @@ fn verify_from_stdin() {
     let sums = run(dir.path(), &["hash", "256", "a"]);
     let out = run_stdin(dir.path(), &["verify", "256", "-"], &sums.stdout);
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
-    assert!(stdout(&out).contains("a: OK"));
+    assert!(stderr(&out).contains("OK") && stderr(&out).contains("a"));
 }
 
 #[test]
@@ -252,7 +265,9 @@ fn verify_multiple_checksum_files() {
     fs::write(dir.path().join("B.sums"), &sb.stdout).unwrap();
     let out = run(dir.path(), &["verify", "256", "A.sums", "B.sums"]);
     assert_eq!(code(&out), 0);
-    assert!(stdout(&out).contains("a: OK") && stdout(&out).contains("b: OK"));
+    assert!(
+        stderr(&out).contains("OK") && stderr(&out).contains("a") && stderr(&out).contains("b")
+    );
 }
 
 #[test]
@@ -264,7 +279,9 @@ fn verify_skips_blank_and_comment_lines() {
     fs::write(dir.path().join("SUMS"), manifest).unwrap();
     let out = run(dir.path(), &["verify", "256", "SUMS"]);
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
-    assert!(stdout(&out).contains("a: OK"));
+    assert!(
+        stderr(&out).contains("OK") && stderr(&out).contains("a") && !stderr(&out).contains("b")
+    );
 }
 
 #[test]
@@ -275,7 +292,7 @@ fn verify_binary_marker_separator() {
     fs::write(dir.path().join("SUMS"), manifest).unwrap();
     let out = run(dir.path(), &["verify", "256", "SUMS"]);
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
-    assert!(stdout(&out).contains("a: OK"));
+    assert!(stderr(&out).contains("OK") && stderr(&out).contains("a"));
 }
 
 #[test]
@@ -289,9 +306,9 @@ fn roundtrip_every_algorithm() {
         let out = run(dir.path(), &["verify", algo, &sumfile]);
         assert_eq!(code(&out), 0, "verify {algo}: {}", stderr(&out));
         assert!(
-            stdout(&out).contains("data: OK"),
+            stderr(&out).contains("OK") && stderr(&out).contains("data"),
             "verify {algo} stdout: {}",
-            stdout(&out)
+            stderr(&out)
         );
     }
 }

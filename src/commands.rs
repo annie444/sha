@@ -118,7 +118,7 @@ pub fn run_verify(args: VerifyArgs) -> Result<i32> {
     for (path, outcome) in outcomes {
         match outcome {
             Outcome::Ok => {
-                if !args.status && !args.quiet {
+                if !args.status {
                     info!(path = path.display().to_string(), "OK");
                 }
             }

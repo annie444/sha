@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 
 use sha::algorithm::Algorithm;
 
@@ -77,7 +78,7 @@ pub struct HashArgs {
     pub perf: PerfArgs,
 
     #[command(flatten)]
-    pub verbosity: clap_verbosity_flag::Verbosity,
+    pub verbosity: Verbosity<InfoLevel>,
 }
 
 #[derive(Args, Debug)]
@@ -90,10 +91,6 @@ pub struct VerifyArgs {
     #[arg(required = true, value_name = "CHECKSUM_FILE")]
     pub checksum_files: Vec<PathBuf>,
 
-    /// Don't print OK lines, only failures.
-    #[arg(short, long)]
-    pub quiet: bool,
-
     /// Print nothing; communicate the result only through the exit code.
     #[arg(short, long)]
     pub status: bool,
@@ -102,7 +99,7 @@ pub struct VerifyArgs {
     pub perf: PerfArgs,
 
     #[command(flatten)]
-    pub verbosity: clap_verbosity_flag::Verbosity,
+    pub verbosity: Verbosity<InfoLevel>,
 }
 
 /// Parse a human-friendly byte size such as `8M`, `16MiB`, `1024K`, or a plain
