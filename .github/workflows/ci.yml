@@ -59,7 +59,7 @@ jobs:
 
       - name: Install cargo-fuzz
         run: |
-          if ! command -v carg-fuzz >/dev/null 2>&1; then
+          if ! command -v cargo-fuzz >/dev/null 2>&1; then
             cargo install cargo-fuzz --locked
           fi
 
