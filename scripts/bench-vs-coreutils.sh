@@ -20,13 +20,14 @@
 # GiB/s min/max/median, raw samples) plus metadata are written to a JSON file.
 #
 # Configuration via environment variables:
-#   NUM_FILES     number of test files            (default 6)
-#   FILE_SIZE_MB  size of each test file, in MiB   (default 256)
+#   NUM_FILES     number of test files                            (default 6)
+#   FILE_SIZE_MB  size of each test file, in MiB                  (default 256)
 #   REPS          timed runs per command (hyperfine --runs, >=2)  (default 10)
-#   JOBS          parallelism for sha and xargs    (default: nproc)
-#   ALGOS         space-separated algorithms       (default: the coreutils set)
-#   SHA_BIN       path to the sha binary           (default: target/release/sha)
-#   OUT_JSON      path for the JSON results        (default: bench-results.json)
+#   JOBS          parallelism for sha and xargs                   (default: nproc)
+#   ALGOS         space-separated algorithms                      (default: the coreutils set)
+#   SHA_BIN       path to the sha binary                          (default: target/release/sha)
+#   OUT_JSON      path for the JSON results                       (default: bench-results.json)
+#   WORKDIR       path to a directory for the test files          (default: auto tempdir)
 #   KEEP          set to 1 to keep the test files
 #
 # Requires: hyperfine, python3. Only algorithms with a coreutils counterpart are
