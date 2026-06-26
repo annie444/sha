@@ -82,11 +82,11 @@ TOTAL_BYTES=$((NUM_FILES * FILE_SIZE_MB * 1024 * 1024))
 TOTAL_GIB=$(awk "BEGIN { printf \"%.4f\", $TOTAL_BYTES/1073741824 }")
 
 echo "Generating $NUM_FILES x ${FILE_SIZE_MB}MiB = ${TOTAL_GIB} GiB of test data in $WORKDIR ..." >&2
-head -c "$((FILE_SIZE_MB * 1024 * 1024))" /dev/urandom >"$WORKDIR/f000.dat"
-for i in $(seq 1 $((NUM_FILES - 1))); do
-    DAT_FILE="$(printf '%s/f%03d.dat' "$WORKDIR" "$i")"
-    head -c "$((FILE_SIZE_MB * 1024 * 1024))" /dev/urandom >"$DAT_FILE"
-done
+{
+    for i in $(seq 0 $((NUM_FILES - 1))); do
+        printf '%s/f%03d.dat\0' "$WORKDIR" "$i"
+    done
+} | xargs -0 -P "$JOBS" -I{} sh -c 'dd if=/dev/urandom bs=1M count="$1" of="$2"' sh "$FILE_SIZE_MB" {}
 FILES=("$WORKDIR"/*.dat)
 
 # Warm the page cache so we compare compute, not first-touch disk reads.
