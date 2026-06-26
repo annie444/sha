@@ -194,7 +194,8 @@ generate_test_files() {
     log "INFO" "Generating $NUM_FILES x ${FILE_SIZE_MB}MiB = ${TOTAL_GIB} GiB of test data in $WORKDIR ..."
     local fifo="$WORKDIR/.progress"
     mkfifo "$fifo"
-    pv -l -s "$NUM_FILES" -p -t -e -b < "$fifo" >/dev/null &
+    pv -l -s "$NUM_FILES" -p -t -e -b <"$fifo" >/dev/null &
+    exec 9>"$fifo"
 
     {
         for i in $(seq 0 $((NUM_FILES - 1))); do
@@ -204,6 +205,7 @@ generate_test_files() {
         'dd if=/dev/urandom bs=1M count="$1" of="$2" conv=notrunc >/dev/null 2>&1; printf "x\n" >> "$3"' \
         sh "$FILE_SIZE_MB" {} "$fifo"
 
+    exec 9>&-
     wait
 
     log "DEBUG" "Test files generated"
