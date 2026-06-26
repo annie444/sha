@@ -71,7 +71,9 @@ if [[ ! -x "$SHA_BIN" ]]; then
     (cd "$ROOT" && cargo build --release >&2)
 fi
 
-WORKDIR="$(mktemp -d)"
+if [[ -z "${WORKDIR:-}" ]]; then
+    WORKDIR="$(mktemp -d)"
+fi
 cleanup() { [[ "${KEEP:-0}" == "1" ]] || rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
