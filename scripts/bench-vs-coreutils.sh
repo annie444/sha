@@ -84,7 +84,8 @@ TOTAL_GIB=$(awk "BEGIN { printf \"%.4f\", $TOTAL_BYTES/1073741824 }")
 echo "Generating $NUM_FILES x ${FILE_SIZE_MB}MiB = ${TOTAL_GIB} GiB of test data in $WORKDIR ..." >&2
 head -c "$((FILE_SIZE_MB * 1024 * 1024))" /dev/urandom >"$WORKDIR/f000.dat"
 for i in $(seq 1 $((NUM_FILES - 1))); do
-    cp "$WORKDIR/f000.dat" "$(printf '%s/f%03d.dat' "$WORKDIR" "$i")"
+    DAT_FILE="$(printf '%s/f%03d.dat' "$WORKDIR" "$i")"
+    head -c "$((FILE_SIZE_MB * 1024 * 1024))" /dev/urandom >"$DAT_FILE"
 done
 FILES=("$WORKDIR"/*.dat)
 
