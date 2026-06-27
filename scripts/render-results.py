@@ -95,7 +95,7 @@ def main(
         ],
     ] = {
         "metadata": {
-            "timestamp_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+            "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "sha_bin": str(sha_bin),
             "num_files": num_files,
             "file_size_mb": file_size_mb,
