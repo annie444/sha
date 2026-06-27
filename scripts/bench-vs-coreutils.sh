@@ -17,6 +17,10 @@
 #   * per-core  : sha -j1  vs coreutils (1 cpu)   — the honest algorithmic win
 #   * parallel  : sha -jN  vs coreutils (xargs)   — the real-world throughput win
 #
+# With -p/--parallel, the two single-core commands (sha -j1, coreutils 1 cpu)
+# are skipped: only the parallel pair is timed and only the parallel speedup is
+# reported.
+#
 # A human-readable GiB/s table goes to stdout; full per-run statistics (time and
 # GiB/s min/max/median, raw samples) plus metadata are written to a JSON file.
 #
@@ -50,6 +54,7 @@ RESET=$'\033[0m'
     RED=$''
     GREEN=$''
     YELLOW=$''
+    BLUE=$''
     MAGENTA=$''
     CYAN=$''
     BOLD=$''
@@ -68,8 +73,10 @@ NUM_FILES=6
 FILE_SIZE_MB=256
 REPS=10
 JOBS="$(nproc 2>/dev/null || echo 4)"
-ALGOS="md5 sha1 sha224 sha256 sha384 sha512"
 OUT_JSON="bench-results.json"
+PARALLEL_ONLY=0
+
+declare -a ALGOS=()
 
 SCRIPT_NAME="$(basename "$0")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -93,7 +100,11 @@ print_opt() {
 
 usage() {
     cat <<EOUSAGE
-${BLUE}Usage:${RESET} ${MAGENTA}$SCRIPT_NAME${RESET} [${GREEN}OPTIONS${RESET}]
+${BLUE}Usage:${RESET} ${MAGENTA}$SCRIPT_NAME${RESET} [${GREEN}OPTIONS${RESET}] [${GREEN}ALGORITHM...${RESET}]
+
+${BLUE}Arguments:${RESET}
+    ${GREEN}ALGORITHM${RESET}                Algorithm(s) to benchmark. If none are specified, all coreutils-supported algorithms are run
+                             ${RED}default:${RESET} "md5 sha1 sha224 sha256 sha384 sha512"
 
 ${BLUE}Options:${RESET}
 EOUSAGE
@@ -104,6 +115,7 @@ EOUSAGE
     print_opt x sha-bin BINARY "$SHA_BIN" "Path to the ${YELLOW}sha${RESET} binary. Will be built if missing."
     print_opt n num-files FILES "$NUM_FILES" "Total number of files"
     print_opt s file-size MIB "$FILE_SIZE_MB" "Size of each file in MiB"
+    print_opt p parallel "" "" "Only run parallel benchmarks (${YELLOW}sha-jN${RESET}, ${YELLOW}coreutils-xargs${RESET}); skip single-core runs and ${CYAN}spd/core${RESET}"
     print_opt d debug "" "" "Enable debug logging"
     print_opt h help "" "" "Print this help message and quit"
 }
@@ -226,7 +238,7 @@ run_benchmarks() {
     # JSON. hyperfine's own live summary goes to stderr so stdout stays clean for
     # the consolidated table emitted by the python post-processor below.
     RAN_ALGOS=()
-    for algo in $ALGOS; do
+    for algo in "${ALGOS[@]}"; do
         tool=$(coreutils_tool "$algo")
         if [[ -z "$tool" ]] || ! command -v "$tool" >/dev/null 2>&1; then
             log "WARN" "skipping $algo: no coreutils equivalent"
@@ -236,11 +248,22 @@ run_benchmarks() {
         log "INFO" "Benchmarking $algo"
         printf "\n"
 
-        hyperfine --warmup 5 --runs "$REPS" \
-            -n "sha-jN" "$SHA_BIN hash $algo -j $JOBS $FILES_STR >/dev/null" \
-            -n "sha-j1" "$SHA_BIN hash $algo -j 1 $FILES_STR >/dev/null" \
-            -n "coreutils-1cpu" "$tool $FILES_STR >/dev/null" \
-            -n "coreutils-xargs" "printf '%s\0' $FILES_STR | xargs -0 -P $JOBS -n1 $tool >/dev/null" \
+        # Always time the two parallel commands; add the single-core pair unless
+        # parallel-only mode skips them.
+        local -a hf_cmds=(
+            -n "sha-jN" "$SHA_BIN hash $algo -j $JOBS $FILES_STR >/dev/null"
+        )
+        if [[ "$PARALLEL_ONLY" == "0" ]]; then
+            hf_cmds+=(
+                -n "sha-j1" "$SHA_BIN hash $algo -j 1 $FILES_STR >/dev/null"
+                -n "coreutils-1cpu" "$tool $FILES_STR >/dev/null"
+            )
+        fi
+        hf_cmds+=(
+            -n "coreutils-xargs" "printf '%s\0' $FILES_STR | xargs -0 -P $JOBS -n1 $tool >/dev/null"
+        )
+
+        hyperfine --warmup 5 --runs "$REPS" "${hf_cmds[@]}" \
             --export-json "$WORKDIR/$algo.json" 1>&2
 
         RAN_ALGOS+=("$algo")
@@ -259,16 +282,19 @@ run_stats() {
 
     # Post-process: read every per-algo hyperfine JSON, print the GiB/s table, and
     # write the combined results (with min/max/median and metadata) to $OUT_JSON.
-    "$SCRIPT_DIR"/render-results.py \
-        -w "$WORKDIR" \
-        -g "$TOTAL_GIB" \
-        -b "$TOTAL_BYTES" \
-        -o "$OUT_JSON" \
-        -j "$JOBS" \
-        -r "$REPS" \
-        -x "$SHA_BIN" \
-        -n "$NUM_FILES" \
+    local -a py_args=(
+        -w "$WORKDIR"
+        -g "$TOTAL_GIB"
+        -b "$TOTAL_BYTES"
+        -o "$OUT_JSON"
+        -j "$JOBS"
+        -r "$REPS"
+        -x "$SHA_BIN"
+        -n "$NUM_FILES"
         -s "$FILE_SIZE_MB"
+    )
+    [[ "$PARALLEL_ONLY" == "1" ]] && py_args+=(-p)
+    "$SCRIPT_DIR"/render-results.py "${py_args[@]}" "${RAN_ALGOS[@]}"
 }
 
 main() {
@@ -315,6 +341,10 @@ main() {
             FILE_SIZE_MB="$2"
             shift 2
             ;;
+        -p | --parallel)
+            PARALLEL_ONLY=1
+            shift
+            ;;
         -d | --debug)
             set -x
             shift
@@ -329,10 +359,18 @@ main() {
             break
             ;;
         -*) unknown "option" "$1" ;;
+        md5 | sha1 | sha224 | sha256 | sha384 | sha512)
+            ALGOS+=("$1")
+            shift
+            ;;
         *) unknown "argument" "$1" ;;
         esac
     done
     (($# > 0)) && unknown "argument" "$1"
+
+    if ((${#ALGOS[@]} == 0)); then
+        ALGOS+=("md5" "sha1" "sha224" "sha256" "sha384" "sha512")
+    fi
 
     uint --jobs "$JOBS"
     uint --reps "$REPS"
@@ -344,10 +382,10 @@ main() {
     run_benchmarks
     run_stats
 
-    cat <<EONOTES
+    printf '\n%b%bNotes:%b\n\n' "$BOLD" "$BLUE" "$RESET"
 
-${BOLD}${BLUE}Notes:${RESET}
-
+    if [[ "$PARALLEL_ONLY" == "0" ]]; then
+        cat <<EONOTES
   ${GREEN}*${RESET} '${CYAN}spd/core${RESET}' = ${YELLOW}sha -j1 vs single-thread coreutils${RESET} (the honest per-core algorithmic comparison); '${CYAN}spd/par${RESET}' = ${YELLOW}sha -j$JOBS vs coreutils${RESET} fanned out with ${YELLOW}xargs${RESET} (the real-world parallel throughput win).
 
   ${GREEN}*${RESET} Per-core speed depends on the CPU:
@@ -356,6 +394,13 @@ ${BOLD}${BLUE}Notes:${RESET}
 
       - WITHOUT ${RED}SHA-NI${RESET}, RustCrypto's portable sha256 is slower per core than ${YELLOW}coreutils${RESET}/${YELLOW}openssl${RESET}, so sha's advantage comes entirely from parallelism.
 
+EONOTES
+    else
+        printf '  %b*%b Parallel-only mode: %bspd/core%b not computed (the single-core runs were skipped); %bspd/par%b = %bsha -j%s vs coreutils%b fanned out with %bxargs%b.\n\n' \
+            "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET" "$YELLOW" "$JOBS" "$RESET" "$YELLOW" "$RESET"
+    fi
+
+    cat <<EONOTES
   ${GREEN}*${RESET} ${CYAN}Time/GiB/s min/max/median${RESET} for every command live in $OUT_JSON.
 
   ${GREEN}*${RESET} ${YELLOW}coreutils${RESET} has no SHA-3; use '${YELLOW}cargo bench${RESET}' for SHA-3 throughput.
