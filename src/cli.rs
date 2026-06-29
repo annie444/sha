@@ -1,12 +1,8 @@
-//! Command-line interface definition.
-
 use std::path::PathBuf;
 
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-
-use sha::algorithm::Algorithm;
 
 pub const SHA_STYLING: Styles = Styles::styled()
     .header(AnsiColor::BrightGreen.on_default().effects(Effects::BOLD))
@@ -54,17 +50,11 @@ pub struct PerfArgs {
     pub buffer_size: Option<usize>,
 }
 
-/// Help text listing every accepted algorithm, shown on both subcommands.
-const ALGO_HELP: &str = "Hash algorithm. One of: md5, sha1, sha224, sha256, sha384, \
-    sha512, sha512_224, sha512_256, sha3_224, sha3_256, sha3_384, sha3_512. Bare digest \
-    sizes select the SHA-2 family (e.g. 256 = sha256); SHA-3 and SHA-512 truncations must \
-    be qualified (e.g. sha3-256, 512/256).";
-
 #[derive(Args, Debug)]
 pub struct HashArgs {
-    /// Hash algorithm (see long help for the full list).
-    #[arg(value_name = "ALGORITHM", long_help = ALGO_HELP)]
-    pub algorithm: Algorithm,
+    /// Hash algorithm
+    #[arg(value_enum, value_name = "ALGORITHM")]
+    pub algorithm: CliAlgorithm,
 
     /// Files to hash.
     #[arg(required = true, value_name = "FILE")]
@@ -84,8 +74,8 @@ pub struct HashArgs {
 #[derive(Args, Debug)]
 pub struct VerifyArgs {
     /// Hash algorithm used to produce the checksum file(s).
-    #[arg(value_name = "ALGORITHM", long_help = ALGO_HELP)]
-    pub algorithm: Algorithm,
+    #[arg(value_enum, value_name = "ALGORITHM")]
+    pub algorithm: CliAlgorithm,
 
     /// Checksum files to read (coreutils `shaNsum` format). Use `-` for stdin.
     #[arg(required = true, value_name = "CHECKSUM_FILE")]
@@ -100,6 +90,106 @@ pub struct VerifyArgs {
 
     #[command(flatten)]
     pub verbosity: Verbosity<InfoLevel>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, clap::ValueEnum)]
+pub enum CliAlgorithm {
+    #[clap(alias = "md5sum", alias = "5")]
+    Md5,
+    #[clap(alias = "sha1sum", alias = "1")]
+    Sha1,
+    #[clap(alias = "sha224sum", alias = "224")]
+    Sha224,
+    #[clap(alias = "sha256sum", alias = "256")]
+    Sha256,
+    #[clap(alias = "sha384sum", alias = "384")]
+    Sha384,
+    #[clap(alias = "sha512sum", alias = "512")]
+    Sha512,
+    #[clap(
+        alias = "sha512_224sum",
+        alias = "512_224",
+        alias = "sha512-224sum",
+        alias = "512-224",
+        alias = "sha512-224",
+        alias = "sha512/224sum",
+        alias = "512/224",
+        alias = "sha512/224",
+        alias = "sha512224sum",
+        alias = "512224",
+        alias = "sha512224"
+    )]
+    Sha512_224,
+    #[clap(
+        alias = "sha512_256sum",
+        alias = "512_256",
+        alias = "sha512-256sum",
+        alias = "512-256",
+        alias = "sha512-256",
+        alias = "sha512/256sum",
+        alias = "512/256",
+        alias = "sha512/256",
+        alias = "sha512256sum",
+        alias = "512256",
+        alias = "sha512256"
+    )]
+    Sha512_256,
+    #[clap(
+        alias = "sha3_224sum",
+        alias = "3_224",
+        alias = "sha3-224sum",
+        alias = "3-224",
+        alias = "sha3-224",
+        alias = "sha3/224sum",
+        alias = "3/224",
+        alias = "sha3/224",
+        alias = "sha3224sum",
+        alias = "3224",
+        alias = "sha3224"
+    )]
+    Sha3_224,
+    #[clap(
+        alias = "sha3_256sum",
+        alias = "3_256",
+        alias = "sha3-256sum",
+        alias = "3-256",
+        alias = "sha3-256",
+        alias = "sha3/256sum",
+        alias = "3/256",
+        alias = "sha3/256",
+        alias = "sha3256sum",
+        alias = "3256",
+        alias = "sha3256"
+    )]
+    Sha3_256,
+    #[clap(
+        alias = "sha3_384sum",
+        alias = "3_384",
+        alias = "sha3-384sum",
+        alias = "3-384",
+        alias = "sha3-384",
+        alias = "sha3/384sum",
+        alias = "3/384",
+        alias = "sha3/384",
+        alias = "sha3384sum",
+        alias = "3384",
+        alias = "sha3384"
+    )]
+    Sha3_384,
+    #[clap(
+        alias = "sha3_512sum",
+        alias = "3_512",
+        alias = "sha3-512sum",
+        alias = "3-512",
+        alias = "sha3-512",
+        alias = "sha3/512sum",
+        alias = "3/512",
+        alias = "sha3/512",
+        alias = "sha3512sum",
+        alias = "3512",
+        alias = "sha3512"
+    )]
+    Sha3_512,
 }
 
 /// Parse a human-friendly byte size such as `8M`, `16MiB`, `1024K`, or a plain
@@ -166,7 +256,7 @@ mod tests {
         let cli = Cli::try_parse_from(["sha", "hash", "256", "a.txt", "b.txt"]).unwrap();
         match cli.command {
             Command::Hash(a) => {
-                assert_eq!(a.algorithm, Algorithm::Sha256);
+                assert_eq!(a.algorithm, CliAlgorithm::Sha256);
                 assert_eq!(a.files.len(), 2);
             }
             _ => panic!("expected hash subcommand"),
@@ -178,7 +268,7 @@ mod tests {
         let cli = Cli::try_parse_from(["sha", "verify", "md5", "-j", "3", "sums.txt"]).unwrap();
         match cli.command {
             Command::Verify(a) => {
-                assert_eq!(a.algorithm, Algorithm::Md5);
+                assert_eq!(a.algorithm, CliAlgorithm::Md5);
                 assert_eq!(a.perf.jobs, Some(3));
             }
             _ => panic!("expected verify subcommand"),

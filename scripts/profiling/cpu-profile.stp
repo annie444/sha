@@ -1,0 +1,65 @@
+#!/usr/bin/env stap
+//
+// cpu-profile.stp — "where do the cycles go, and which SHA-256 backend?"
+//
+// Statistical on-CPU profiler. timer.profile fires on every CPU each tick; the
+// number of samples landing in a function is proportional to time spent there.
+// We bucket samples by the *symbol name* at the instruction pointer, because the
+// hot symbol's NAME is the smoking gun for the backend asymmetry:
+//
+//   * sha256sum linked to OpenSSL  -> sha256_block_data_order_shaext (SHA-NI)
+//                                     or *_ssse3 / *_nohw (software)
+//   * this `sha` (RustCrypto sha2) -> its compress routine, SHA-NI or portable
+//
+// Same fast symbol in both -> per-core parity (slowness is parallelism/startup).
+// Different symbols, one hardware one portable -> backend mismatch = root cause.
+//
+// Needs symbols in the user binary: build `sha` un-stripped (the orchestrator
+// does this). Kernel debuginfo improves kernel attribution but is NOT required —
+// the userspace SHA-256 symbol is what matters here.
+//
+// Usage (one command per run):
+//   stap cpu-profile.stp -c 'target/release/sha hash sha256 -j1 BIGFILE'
+//   stap cpu-profile.stp -c 'sha256sum BIGFILE'
+
+global samples   // [execname, domain, symbol] -> sample count
+global total     // [execname] -> total samples
+global user_s    // [execname] -> user-space samples
+global kern_s    // [execname] -> kernel samples
+
+function mine:long() {
+    return (target() == 0 || target_set_pid(pid()))
+}
+
+probe timer.profile {
+    if (!mine()) next
+    cmd = execname()
+    total[cmd] += 1
+    if (user_mode()) {
+        user_s[cmd] += 1
+        samples[cmd, "user", usymname(uaddr())] += 1
+    } else {
+        kern_s[cmd] += 1
+        samples[cmd, "kern", symname(addr())] += 1
+    }
+}
+
+probe end {
+    printf("\n===== CPU profile (on-CPU samples) =====\n")
+    foreach (cmd in total-) {
+        tot = total[cmd]
+        printf("\n[%s]  %d samples  (user %d%%, kernel %d%%)\n",
+               cmd, tot, tot ? user_s[cmd] * 100 / tot : 0,
+               tot ? kern_s[cmd] * 100 / tot : 0)
+        printf("  top symbols by sample count:\n")
+        // Highest count first; cap at 12 lines so the SHA-256 transform stands out.
+        foreach ([c, dom, sym] in samples[cmd, *, *]- limit 12) {
+            n = samples[c, dom, sym]
+            printf("   %6d  %3d%%  %-4s  %s\n",
+                   n, tot ? n * 100 / tot : 0, dom, sym)
+        }
+    }
+    printf("\nInterpretation: the hottest user symbol names each program's active\n")
+    printf("SHA-256 transform. A hardware (*shaext/*-ni) symbol on one side and a\n")
+    printf("portable symbol on the other is a backend mismatch = the root cause.\n")
+}

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from argparse import ArgumentParser
+from enum import Enum
 
 import datetime
 import json
@@ -9,6 +10,35 @@ import math
 
 NAMES = ["sha-jN", "sha-j1", "coreutils-1cpu", "coreutils-xargs"]
 ALGOS = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]
+
+
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+MAGENTA = "\033[35m"
+CYAN = "\033[36m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+
+
+class Level(Enum):
+    INFO = 1
+    DEBUG = 2
+
+    def color(self) -> str:
+        color = {
+            Level.INFO: GREEN,
+            Level.DEBUG: CYAN,
+        }
+        return color[self]
+
+    def __str__(self) -> str:
+        return f"[{self.color()}{self.name}{RESET}]"
+
+
+def log(level: Level, msg: str):
+    print(f"{str(level)} {msg}")
 
 
 def cmd_stats(res: dict[str, float]) -> dict[str, float | list[float]]:
@@ -58,16 +88,23 @@ def speedup(
     return s, s * rel
 
 
-def cell(mean: float, sd: float) -> str:
-    return f"{mean:.2f}+/-{sd:.2f}"
+def cell(mean: float, sd: float) -> tuple[str, str, str]:
+    return ("", f"{mean:.2f}+/-{sd:.2f}", "")
 
 
-def spd(pair: tuple[float, float]) -> str:
-    return f"{pair[0]:.2f}+/-{pair[1]:.2f}x"
+def spd(pair: tuple[float, float]) -> tuple[str, str, str]:
+    return ("", f"{pair[0]:.2f}+/-{pair[1]:.2f}x", "")
 
 
-def render(values: list[str | int | float] | list[str], widths: list[int]) -> str:
-    return " │ " + " │ ".join(f"{v:<{w}}" for v, w in zip(values, widths)) + " │"
+def render(
+    values: list[tuple[str, str | int | float, str]] | list[tuple[str, str, str]],
+    widths: list[int],
+) -> str:
+    return (
+        " │ "
+        + " │ ".join(f"{c}{v:<{w}}{r}" for (c, v, r), w in zip(values, widths))
+        + " │"
+    )
 
 
 def main(
@@ -121,18 +158,31 @@ def main(
             "spd/core",
             "spd/par",
         ]
+    cols = [(CYAN, col, RESET) for col in cols]
 
     print()
-    print(
-        "All throughput figures are mean±σ in GiB/s over "
-        f"{reps} runs; speedups carry propagated uncertainty."
+    log(
+        Level.INFO,
+        f"All throughput figures are {CYAN}mean+/-stddev{RESET} in {GREEN}GiB/s{RESET} over {reps} runs; speedups carry propagated uncertainty.",
     )
     print()
-    print(" ┌─" + "─┬─".join("─" * w for w in col_widths) + "─┐")
-    print(render(cols, col_widths))
-    print(" ├─" + "─┼─".join("─" * w for w in col_widths) + "─┤")
 
-    for algo in algos:
+    best_mean: float = 0.0
+    worst_mean: float = 100000.0
+    best_mean_idx: tuple[int, int] = (0, 0)
+    worst_mean_idx: tuple[int, int] = (0, 0)
+    best_spd_par: float = 0.0
+    worst_spd_par: float = 100000.0
+    best_spd_par_idx: tuple[int, int] = (0, 0)
+    worst_spd_par_idx: tuple[int, int] = (0, 0)
+    best_spd_core: float = 0.0
+    worst_spd_core: float = 100000.0
+    best_spd_core_idx: tuple[int, int] = (0, 0)
+    worst_spd_core_idx: tuple[int, int] = (0, 0)
+
+    table: list[list[tuple[str, str, str]]] = []
+    row: list[tuple[str, str, str]]
+    for i, algo in enumerate(algos):
         with open(workdir / f"{algo}.json") as fh:
             data = json.load(fh)
         by_name: dict[str, dict[str, float | list[float]]] = {
@@ -150,8 +200,21 @@ def main(
         cx_stddev = get_float(cx, "gibs_stddev")
 
         if parallel_only:
+            for idx, mean in zip([1, 2], [jn_mean, cx_mean]):
+                if mean > best_mean:
+                    best_mean = mean
+                    best_mean_idx = (i, idx)
+                if mean < worst_mean:
+                    worst_mean = mean
+                    worst_mean_idx = (i, idx)
+            if spd_par[0] > best_spd_par:
+                best_spd_par = spd_par[0]
+                best_spd_par_idx = (i, 3)
+            if spd_par[0] < worst_spd_par:
+                worst_spd_par = spd_par[0]
+                worst_spd_par_idx = (i, 3)
             row = [
-                algo,
+                (CYAN, algo, RESET),
                 cell(jn_mean, jn_stddev),
                 cell(cx_mean, cx_stddev),
                 spd(spd_par),
@@ -165,8 +228,31 @@ def main(
             j1_stddev = get_float(j1, "gibs_stddev")
             c1_mean = get_float(c1, "gibs_mean")
             c1_stddev = get_float(c1, "gibs_stddev")
+
+            for idx, mean in zip([1, 2, 3, 4], [jn_mean, j1_mean, c1_mean, cx_mean]):
+                if mean > best_mean:
+                    best_mean = mean
+                    best_mean_idx = (i, idx)
+                if mean < worst_mean:
+                    worst_mean = mean
+                    worst_mean_idx = (i, idx)
+
+            if spd_core[0] > best_spd_core:
+                best_spd_core = spd_core[0]
+                best_spd_core_idx = (i, 5)
+            if spd_core[0] < worst_spd_core:
+                worst_spd_core = spd_core[0]
+                worst_spd_core_idx = (i, 5)
+
+            if spd_par[0] > best_spd_par:
+                best_spd_par = spd_par[0]
+                best_spd_par_idx = (i, 6)
+            if spd_par[0] < worst_spd_par:
+                worst_spd_par = spd_par[0]
+                worst_spd_par_idx = (i, 6)
+
             row = [
-                algo,
+                (CYAN, algo, RESET),
                 cell(jn_mean, jn_stddev),
                 cell(j1_mean, j1_stddev),
                 cell(c1_mean, c1_stddev),
@@ -176,7 +262,7 @@ def main(
             ]
             names_in_run = NAMES
 
-        print(render(row, col_widths))
+        table.append(row)
 
         entry: dict[str, dict[str, float | list[float] | str]] = {
             name: {k: v for k, v in by_name[name].items() if k != "_rel"}
@@ -195,6 +281,45 @@ def main(
             }
         results["algorithms"][algo] = entry
 
+    table[best_mean_idx[0]][best_mean_idx[1]] = (
+        GREEN,
+        table[best_mean_idx[0]][best_mean_idx[1]][1],
+        RESET,
+    )
+    table[worst_mean_idx[0]][worst_mean_idx[1]] = (
+        RED,
+        table[worst_mean_idx[0]][worst_mean_idx[1]][1],
+        RESET,
+    )
+
+    table[best_spd_par_idx[0]][best_spd_par_idx[1]] = (
+        GREEN,
+        table[best_spd_par_idx[0]][best_spd_par_idx[1]][1],
+        RESET,
+    )
+    table[worst_spd_par_idx[0]][worst_spd_par_idx[1]] = (
+        RED,
+        table[worst_spd_par_idx[0]][worst_spd_par_idx[1]][1],
+        RESET,
+    )
+
+    if not parallel_only:
+        table[best_spd_core_idx[0]][best_spd_core_idx[1]] = (
+            GREEN,
+            table[best_spd_core_idx[0]][best_spd_core_idx[1]][1],
+            RESET,
+        )
+        table[worst_spd_core_idx[0]][worst_spd_core_idx[1]] = (
+            RED,
+            table[worst_spd_core_idx[0]][worst_spd_core_idx[1]][1],
+            RESET,
+        )
+
+    print(" ┌─" + "─┬─".join("─" * w for w in col_widths) + "─┐")
+    print(render(cols, col_widths))
+    print(" ├─" + "─┼─".join("─" * w for w in col_widths) + "─┤")
+    for row in table:
+        print(render(row, col_widths))
     print(" └─" + "─┴─".join("─" * w for w in col_widths) + "─┘")
 
     with open(out_json, "w") as fh:
@@ -202,7 +327,7 @@ def main(
         fh.write("\n")
 
     print()
-    print(f"Full per-run statistics written to {out_json}")
+    log(Level.DEBUG, f"Full per-run statistics written to {out_json}")
 
 
 if __name__ == "__main__":

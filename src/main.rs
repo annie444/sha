@@ -1,5 +1,6 @@
 //! `sha` — fast, parallel SHA-1/256/512 file hashing and verification.
 
+mod algo_convert;
 mod cli;
 mod commands;
 mod logging;

@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use tracing::{error, info, warn};
 
 use crate::cli::{HashArgs, VerifyArgs};
+use sha::algorithm::Algorithm;
 use sha::checksum::{parse_line, ChecksumEntry};
 use sha::hasher::{hash_file, DEFAULT_BUFFER_SIZE};
 
@@ -33,7 +34,7 @@ fn with_buffer<T>(size: usize, f: impl FnOnce(&mut [u8]) -> T) -> T {
 /// `sha hash`: compute and print digests.
 pub fn run_hash(args: HashArgs) -> Result<i32> {
     let buf_size = args.perf.buffer_size.unwrap_or(DEFAULT_BUFFER_SIZE);
-    let algo = args.algorithm;
+    let algo: Algorithm = args.algorithm.into();
 
     // Hash every file in parallel. `par_iter().map().collect()` preserves input
     // order, so output is deterministic regardless of completion order.
@@ -78,6 +79,7 @@ enum Outcome {
 /// `sha verify`: check files against checksum files.
 pub fn run_verify(args: VerifyArgs) -> Result<i32> {
     let buf_size = args.perf.buffer_size.unwrap_or(DEFAULT_BUFFER_SIZE);
+    let algo: Algorithm = args.algorithm.into();
 
     // Collect all entries from every checksum file first.
     let mut entries: Vec<ChecksumEntry> = Vec::new();
@@ -86,7 +88,7 @@ pub fn run_verify(args: VerifyArgs) -> Result<i32> {
         let content = read_checksum_source(cf)
             .with_context(|| format!("reading checksum file {}", cf.display()))?;
         for (lineno, line) in content.lines().enumerate() {
-            match parse_line(line, args.algorithm) {
+            match parse_line(line, algo) {
                 None => {}
                 Some(Ok(entry)) => entries.push(entry),
                 Some(Err(msg)) => {

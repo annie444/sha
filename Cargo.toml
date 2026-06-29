@@ -42,16 +42,21 @@ tracing-subscriber = { version = "0.3.23", features = [
   "std",
 ] }
 
+[build-dependencies]
+clap_mangen = "0.3"
+clap = { version = "4.5", features = ["derive"] }
+clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 # Release profile tuned for throughput.
 [profile.release]
 opt-level = 3
-lto = "fat"
+lto = true
 codegen-units = 1
 panic = "abort"
-strip = true
+strip = "debuginfo"
 
 [dev-dependencies]
 criterion = "0.8"

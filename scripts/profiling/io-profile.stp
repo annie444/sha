@@ -1,0 +1,69 @@
+#!/usr/bin/env stap
+//
+// io-profile.stp — "is sha slow because of I/O?"
+//
+// Per-process accounting of the read() traffic that feeds the hasher. We expect
+// `sha` (8 MiB buffer, src/hasher.rs:20) to issue FEWER, LARGER reads than
+// coreutils `sha256sum`. If `sha` is still slower despite less syscall traffic,
+// I/O is exonerated and the cause is in the compute path (see cpu-profile.stp).
+//
+// We do NOT assume coreutils' block size — the read-size histogram reports the
+// real value. Time spent inside read() is measured entry-to-return per thread.
+//
+// Usage (one command per run, so attribution stays clean):
+//   stap io-profile.stp -c 'target/release/sha hash sha256 -j1 BIGFILE'
+//   stap io-profile.stp -c 'sha256sum BIGFILE'
+//
+// With `-c CMD`, target() is the launched PID; we follow it and its children so
+// rayon worker threads (same process) and any helpers are all counted.
+
+global reads     // [execname] -> count of read() calls
+global bytes     // [execname] -> total bytes returned by read()
+global ns        // [execname] -> nanoseconds spent inside read()
+global sizes     // [execname] -> @hist_log of bytes returned per read()
+global entry_ns  // [tid] -> timestamp at read() entry
+
+function mine:long() {
+    // Only account for the command launched by `-c` (and its descendants).
+    // target() is that PID; without -c (target()==0) fall back to all procs.
+    return (target() == 0 || target_set_pid(pid()))
+}
+
+// Use the non-debuginfo (nd_) syscall probes and returnval() so this works on a
+// stock kernel without kernel-debuginfo installed (the DWARF `syscall.read` /
+// `$return` variants would require it).
+probe nd_syscall.read {
+    if (!mine()) next
+    entry_ns[tid()] = gettimeofday_ns()
+}
+
+probe nd_syscall.read.return {
+    if (!mine()) next
+    t0 = entry_ns[tid()]
+    if (t0) {
+        ns[execname()] += gettimeofday_ns() - t0
+        delete entry_ns[tid()]
+    }
+    n = returnval()
+    reads[execname()] += 1
+    if (n > 0) {
+        bytes[execname()] += n
+        sizes[execname()] <<< n   // aggregate: feeds @hist_log below
+    }
+}
+
+probe end {
+    printf("\n===== I/O profile (read syscalls) =====\n")
+    foreach (cmd in reads-) {
+        printf("\n[%s]\n", cmd)
+        printf("  read() calls   : %d\n", reads[cmd])
+        printf("  bytes read     : %d (%d MiB)\n", bytes[cmd], bytes[cmd] / 1048576)
+        printf("  time in read() : %d ms\n", ns[cmd] / 1000000)
+        if (@count(sizes[cmd]) > 0) {
+            printf("  read() return-size distribution (bytes):\n")
+            print(@hist_log(sizes[cmd]))
+        }
+    }
+    printf("\nInterpretation: few large reads + low time-in-read for `sha` means\n")
+    printf("I/O is not the bottleneck — look at cpu-profile.stp.\n")
+}

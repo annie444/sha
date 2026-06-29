@@ -24,20 +24,9 @@
 # A human-readable GiB/s table goes to stdout; full per-run statistics (time and
 # GiB/s min/max/median, raw samples) plus metadata are written to a JSON file.
 #
-# Configuration via environment variables:
-#   NUM_FILES     number of test files                            (default 6)
-#   FILE_SIZE_MB  size of each test file, in MiB                  (default 256)
-#   REPS          timed runs per command (hyperfine --runs, >=2)  (default 10)
-#   JOBS          parallelism for sha and xargs                   (default: nproc)
-#   ALGOS         space-separated algorithms                      (default: the coreutils set)
-#   SHA_BIN       path to the sha binary                          (default: target/release/sha)
-#   OUT_JSON      path for the JSON results                       (default: bench-results.json)
-#   WORKDIR       path to a directory for the test files          (default: auto tempdir)
-#   KEEP          set to 1 to keep the test files
-#
-# Requires: hyperfine, python3. Only algorithms with a coreutils counterpart are
-# compared (coreutils has no SHA-3); use the Criterion benchmark (`cargo bench`)
-# for SHA-3 throughput.
+# Requires: hyperfine, python3, pv. Only algorithms with a coreutils counterpart
+# are compared (coreutils has no SHA-3); use the Criterion benchmark
+# (`cargo bench`) for SHA-3 throughput.
 
 set -euo pipefail
 
@@ -75,6 +64,7 @@ REPS=10
 JOBS="$(nproc 2>/dev/null || echo 4)"
 OUT_JSON="bench-results.json"
 PARALLEL_ONLY=0
+SLEEP_TIME=0.2
 
 declare -a ALGOS=()
 
@@ -82,6 +72,7 @@ SCRIPT_NAME="$(basename "$0")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SHA_BIN="$ROOT/target/release/sha"
+PAGE_CACHE_LOGGED=0
 
 TOTAL_BYTES=$((NUM_FILES * FILE_SIZE_MB * 1024 * 1024))
 TOTAL_GIB="$(awk "BEGIN { printf \"%.4f\", $TOTAL_BYTES/1073741824 }")"
@@ -116,6 +107,7 @@ EOUSAGE
     print_opt n num-files FILES "$NUM_FILES" "Total number of files"
     print_opt s file-size MIB "$FILE_SIZE_MB" "Size of each file in MiB"
     print_opt p parallel "" "" "Only run parallel benchmarks (${YELLOW}sha-jN${RESET}, ${YELLOW}coreutils-xargs${RESET}); skip single-core runs and ${CYAN}spd/core${RESET}"
+    print_opt S sleep SECS "$SLEEP_TIME" "Sleep time between runs (to let the page cache drop). Only applies when running as root on Linux or macOS."
     print_opt d debug "" "" "Enable debug logging"
     print_opt h help "" "" "Print this help message and quit"
 }
@@ -238,6 +230,7 @@ run_benchmarks() {
     # JSON. hyperfine's own live summary goes to stderr so stdout stays clean for
     # the consolidated table emitted by the python post-processor below.
     RAN_ALGOS=()
+    log "INFO" "Benchmarking algorithms: ${ALGOS[*]}"
     for algo in "${ALGOS[@]}"; do
         tool=$(coreutils_tool "$algo")
         if [[ -z "$tool" ]] || ! command -v "$tool" >/dev/null 2>&1; then
@@ -245,8 +238,8 @@ run_benchmarks() {
             continue
         fi
 
+        printf '\n'
         log "INFO" "Benchmarking $algo"
-        printf "\n"
 
         # Always time the two parallel commands; add the single-core pair unless
         # parallel-only mode skips them.
@@ -262,6 +255,40 @@ run_benchmarks() {
         hf_cmds+=(
             -n "coreutils-xargs" "printf '%s\0' $FILES_STR | xargs -0 -P $JOBS -n1 $tool >/dev/null"
         )
+
+        if ((UID == 0 || EUID == 0)); then
+            case "$(uname)" in
+            Linux)
+                if [[ -f /proc/sys/vm/drop_caches ]]; then
+                    if ((PAGE_CACHE_LOGGED == 0)); then
+                        log "INFO" "Running as root on Linux; will drop page cache between runs"
+                        log "DEBUG" "Sleeping for $SLEEP_TIME seconds between runs to let the page cache drop"
+                        PAGE_CACHE_LOGGED=$((PAGE_CACHE_LOGGED + 1))
+                    fi
+                    sync
+                    printf '3\n' >/proc/sys/vm/drop_caches
+                    sleep "$SLEEP_TIME"
+                    hf_cmds+=(--prepare "sync; printf '3\n' >/proc/sys/vm/drop_caches; sleep $SLEEP_TIME")
+                else
+                    log "WARN" "Running as root on Linux but /proc/sys/vm/drop_caches is missing; will not drop page cache between runs"
+                fi
+                ;;
+            Darwin)
+                if ((PAGE_CACHE_LOGGED == 0)); then
+                    log "INFO" "Running as root on macOS; will drop page cache between runs"
+                    log "DEBUG" "Sleeping for $SLEEP_TIME seconds between runs to let the page cache drop"
+                    PAGE_CACHE_LOGGED=$((PAGE_CACHE_LOGGED + 1))
+                fi
+                sync
+                purge
+                sleep "$SLEEP_TIME"
+                hf_cmds+=(--prepare "sync; purge; sleep $SLEEP_TIME")
+                ;;
+            *)
+                log "WARN" "Running as root on unknown OS; will not drop page cache between runs"
+                ;;
+            esac
+        fi
 
         hyperfine --warmup 5 --runs "$REPS" "${hf_cmds[@]}" \
             --export-json "$WORKDIR/$algo.json" 1>&2
@@ -295,6 +322,20 @@ run_stats() {
     )
     [[ "$PARALLEL_ONLY" == "1" ]] && py_args+=(-p)
     "$SCRIPT_DIR"/render-results.py "${py_args[@]}" "${RAN_ALGOS[@]}"
+}
+
+print_header() {
+    printf '\n%b%b%s%b\n\n' "$BOLD" "$BLUE" "$*" "$RESET"
+}
+
+print_bullet() {
+    printf '  %b*%b %s\n\n' \
+        "$GREEN" "$RESET" "$*"
+}
+
+print_sub_bullet() {
+    printf '      %b-%b %s\n\n' \
+        "$GREEN" "$RESET" "$*"
 }
 
 main() {
@@ -345,6 +386,11 @@ main() {
             PARALLEL_ONLY=1
             shift
             ;;
+        -S | --sleep)
+            need "$1" "$#"
+            SLEEP_TIME="$2"
+            shift 2
+            ;;
         -d | --debug)
             set -x
             shift
@@ -382,29 +428,18 @@ main() {
     run_benchmarks
     run_stats
 
-    printf '\n%b%bNotes:%b\n\n' "$BOLD" "$BLUE" "$RESET"
+    print_header "Notes:"
 
     if [[ "$PARALLEL_ONLY" == "0" ]]; then
-        cat <<EONOTES
-  ${GREEN}*${RESET} '${CYAN}spd/core${RESET}' = ${YELLOW}sha -j1 vs single-thread coreutils${RESET} (the honest per-core algorithmic comparison); '${CYAN}spd/par${RESET}' = ${YELLOW}sha -j$JOBS vs coreutils${RESET} fanned out with ${YELLOW}xargs${RESET} (the real-world parallel throughput win).
-
-  ${GREEN}*${RESET} Per-core speed depends on the CPU:
-
-      - With ${RED}SHA-NI${RESET} (most CPUs since ~2016), sha1/sha256 use hardware instructions; ${YELLOW}sha${RESET}, ${YELLOW}coreutils${RESET} and ${YELLOW}openssl${RESET} all use the same path and run at parity per core (${GREEN}~1.9 cycles/byte${RESET}). sha's win is parallelism, so expect ${CYAN}spd/core${RESET} near ${GREEN}1.0x${RESET} and ${CYAN}spd/par${RESET} scaling toward core count.
-
-      - WITHOUT ${RED}SHA-NI${RESET}, RustCrypto's portable sha256 is slower per core than ${YELLOW}coreutils${RESET}/${YELLOW}openssl${RESET}, so sha's advantage comes entirely from parallelism.
-
-EONOTES
+        print_bullet "'${CYAN}spd/core${RESET}' = ${YELLOW}sha -j1 vs single-thread coreutils${RESET} (the honest per-core algorithmic comparison); '${CYAN}spd/par${RESET}' = ${YELLOW}sha -j$JOBS vs coreutils${RESET} fanned out with ${YELLOW}xargs${RESET} (the real-world parallel throughput win)."
+        print_bullet "Per-core speed depends on the CPU:"
+        print_sub_bullet "With ${RED}SHA-NI${RESET} (most CPUs since ~2016), sha1/sha256 use hardware instructions; ${YELLOW}sha${RESET}, ${YELLOW}coreutils${RESET} and ${YELLOW}openssl${RESET} all use the same path and run at parity per core (${GREEN}~1.9 cycles/byte${RESET}). sha's win is parallelism, so expect ${CYAN}spd/core${RESET} near ${GREEN}1.0x${RESET} and ${CYAN}spd/par${RESET} scaling toward core count."
+        print_sub_bullet "Without ${RED}SHA-NI${RESET}, RustCrypto's portable sha256 is slower per core than ${YELLOW}coreutils${RESET}/${YELLOW}openssl${RESET}, so sha's advantage comes entirely from parallelism."
     else
-        printf '  %b*%b Parallel-only mode: %bspd/core%b not computed (the single-core runs were skipped); %bspd/par%b = %bsha -j%s vs coreutils%b fanned out with %bxargs%b.\n\n' \
-            "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET" "$YELLOW" "$JOBS" "$RESET" "$YELLOW" "$RESET"
+        print_bullet "Parallel-only mode: '${CYAN}spd/core${RESET}' not computed (the single-core runs were skipped); '${CYAN}spd/par${RESET}' = ${YELLOW}sha -j${JOBS} vs coreutils${RESET} fanned out with ${YELLOW}xargs${RESET}."
     fi
-
-    cat <<EONOTES
-  ${GREEN}*${RESET} ${CYAN}Time/GiB/s min/max/median${RESET} for every command live in $OUT_JSON.
-
-  ${GREEN}*${RESET} ${YELLOW}coreutils${RESET} has no SHA-3; use '${YELLOW}cargo bench${RESET}' for SHA-3 throughput.
-EONOTES
+    print_bullet "${CYAN}Time/GiB/s min/max/median${RESET} for every command live in $OUT_JSON."
+    print_bullet "${YELLOW}coreutils${RESET} has no SHA-3; use '${YELLOW}cargo bench${RESET}' for SHA-3 throughput."
 }
 
 main "$@"
