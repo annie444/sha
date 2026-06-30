@@ -26,27 +26,27 @@ class Level(Enum):
     INFO = 1
     DEBUG = 2
 
-    def color(self) -> str:
+    def color(self):
         color = {
             Level.INFO: GREEN,
             Level.DEBUG: CYAN,
         }
         return color[self]
 
-    def __str__(self) -> str:
+    def __str__(self):
         return f"[{self.color()}{self.name}{RESET}]"
 
 
-def log(level: Level, msg: str):
+def log(level, msg):
     print(f"{str(level)} {msg}")
 
 
-def cmd_stats(res: dict[str, float]) -> dict[str, float | list[float]]:
+def cmd_stats(res):
     """Per-command time + throughput statistics from one hyperfine result."""
-    mean: float = res["mean"]
-    sd: float = res.get("stddev") or 0.0
-    rel: float = sd / mean if mean else 0.0
-    g: float = total_gib / mean
+    mean = res["mean"]
+    sd = res.get("stddev") or 0.0
+    rel = sd / mean if mean else 0.0
+    g = total_gib / mean
     return {
         "time_mean": mean,
         "time_stddev": sd,
@@ -64,42 +64,33 @@ def cmd_stats(res: dict[str, float]) -> dict[str, float | list[float]]:
     }
 
 
-def get_float(
-    d: dict[str, int | float | list[int | float]],
-    key: str,
-) -> float:
+def get_float(d, key):
     item = d[key]
     assert isinstance(item, float)
     return item
 
 
-def speedup(
-    core: dict[str, int | float | list[int | float]],
-    sha: dict[str, int | float | list[int | float]],
-) -> tuple[float, float]:
+def speedup(core, sha):
     """Throughput speedup of sha over coreutils = t_core / t_sha, with the
     standard ratio error propagation sigma_S/S = sqrt((s_c/t_c)^2+(s_s/t_s)^2)."""
-    core_time_mean: float = get_float(core, "time_mean")
-    sha_time_mean: float = get_float(sha, "time_mean")
-    core_rel: float = get_float(core, "_rel")
-    sha_rel: float = get_float(sha, "_rel")
-    s: float = core_time_mean / sha_time_mean
-    rel: float = math.hypot(core_rel, sha_rel)
+    core_time_mean = get_float(core, "time_mean")
+    sha_time_mean = get_float(sha, "time_mean")
+    core_rel = get_float(core, "_rel")
+    sha_rel = get_float(sha, "_rel")
+    s = core_time_mean / sha_time_mean
+    rel = math.hypot(core_rel, sha_rel)
     return s, s * rel
 
 
-def cell(mean: float, sd: float) -> tuple[str, str, str]:
+def cell(mean, sd):
     return ("", f"{mean:.2f}+/-{sd:.2f}", "")
 
 
-def spd(pair: tuple[float, float]) -> tuple[str, str, str]:
+def spd(pair):
     return ("", f"{pair[0]:.2f}+/-{pair[1]:.2f}x", "")
 
 
-def render(
-    values: list[tuple[str, str | int | float, str]] | list[tuple[str, str, str]],
-    widths: list[int],
-) -> str:
+def render(values, widths):
     return (
         " │ "
         + " │ ".join(f"{c}{v:<{w}}{r}" for (c, v, r), w in zip(values, widths))
@@ -108,29 +99,19 @@ def render(
 
 
 def main(
-    workdir: Path,
-    total_gib: float,
-    total_bytes: int,
-    out_json: Path,
-    jobs: int,
-    reps: int,
-    sha_bin: Path,
-    num_files: int,
-    file_size_mb: int,
-    algos: list[str],
-    parallel_only: bool,
+    workdir,
+    total_gib,
+    total_bytes,
+    out_json,
+    jobs,
+    reps,
+    sha_bin,
+    num_files,
+    file_size_mb,
+    algos,
+    parallel_only,
 ):
-    results: dict[
-        str,
-        dict[
-            str,
-            str
-            | int
-            | float
-            | list[str]
-            | dict[str, dict[str, float | list[float] | str]],
-        ],
-    ] = {
+    results = {
         "metadata": {
             "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "sha_bin": str(sha_bin),
@@ -167,27 +148,24 @@ def main(
     )
     print()
 
-    best_mean: float = 0.0
-    worst_mean: float = 100000.0
-    best_mean_idx: tuple[int, int] = (0, 0)
-    worst_mean_idx: tuple[int, int] = (0, 0)
-    best_spd_par: float = 0.0
-    worst_spd_par: float = 100000.0
-    best_spd_par_idx: tuple[int, int] = (0, 0)
-    worst_spd_par_idx: tuple[int, int] = (0, 0)
-    best_spd_core: float = 0.0
-    worst_spd_core: float = 100000.0
-    best_spd_core_idx: tuple[int, int] = (0, 0)
-    worst_spd_core_idx: tuple[int, int] = (0, 0)
+    best_mean = 0.0
+    worst_mean = 100000.0
+    best_mean_idx = (0, 0)
+    worst_mean_idx = (0, 0)
+    best_spd_par = 0.0
+    worst_spd_par = 100000.0
+    best_spd_par_idx = (0, 0)
+    worst_spd_par_idx = (0, 0)
+    best_spd_core = 0.0
+    worst_spd_core = 100000.0
+    best_spd_core_idx = (0, 0)
+    worst_spd_core_idx = (0, 0)
 
-    table: list[list[tuple[str, str, str]]] = []
-    row: list[tuple[str, str, str]]
+    table = []
     for i, algo in enumerate(algos):
         with open(workdir / f"{algo}.json") as fh:
             data = json.load(fh)
-        by_name: dict[str, dict[str, float | list[float]]] = {
-            r["command"]: cmd_stats(r) for r in data["results"]
-        }
+        by_name = {r["command"]: cmd_stats(r) for r in data["results"]}
 
         jn = by_name["sha-jN"]
         cx = by_name["coreutils-xargs"]
@@ -264,7 +242,7 @@ def main(
 
         table.append(row)
 
-        entry: dict[str, dict[str, float | list[float] | str]] = {
+        entry = {
             name: {k: v for k, v in by_name[name].items() if k != "_rel"}
             for name in names_in_run
         }
